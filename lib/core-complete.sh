@@ -7234,63 +7234,65 @@ function ble/complete/candidates/filter:subseq/match {
 }
 
 ## @fn ble/complete/candidates/count-match-chars/.by-path filter_type value
-##   パス名の各成分に対して一致文字数を数え上げます。
+##   パス名の成分毎に COMPV の一致文字数を数え上げます。
 ##   @param[in] filter_type value
 ##   @var[in] COMPV comp_type comps_fixed
 ##   @var[out] ret
 ##   @exit 成分毎の一致を確認できた時に成功します。
 function ble/complete/candidates/count-match-chars/.by-path {
-  local _ble_local_type=$1 _ble_local_value=$2
-  local -a _ble_local_cparts _ble_local_vparts
-  ble/string#split _ble_local_cparts / "$COMPV"
-  ble/string#split _ble_local_vparts / "$_ble_local_value"
+  local filter_type=$1 value=$2
+  local -a cparts vparts
+  ble/string#split cparts / "$COMPV"
+  ble/string#split vparts / "$value"
 
   # Note: パターン中の * は / に一致しない為、候補の成分数は COMPV の成分数以上
-  #   になる (末尾に / が付加される事があるので一致するとは限らない)。
-  local _ble_local_iN=${#_ble_local_cparts[@]}
-  ((${#_ble_local_vparts[@]}>=_ble_local_iN)) || return 1
+  #   になる (候補には末尾に / が付加される事がある)。
+  local iN=${#cparts[@]}
+  ((${#vparts[@]}>=iN)) || return 1
 
-  local _ble_local_i _ble_local_n=0 _ble_local_part
-  for ((_ble_local_i=0;_ble_local_i<_ble_local_iN;_ble_local_i++)); do
-    ((_ble_local_i&&_ble_local_n++)) # 区切りの / の分
-    _ble_local_part=${_ble_local_cparts[_ble_local_i]}
-    COMPV=$_ble_local_part ble/complete/candidates/filter:"$_ble_local_type"/count-match-chars "${_ble_local_vparts[_ble_local_i]}" || return 1
+  local i count=0 part
+  for ((i=0;i<iN;i++)); do
+    ((i&&count++)) # 区切りの / の分
+    part=${cparts[i]} # workaround bash-3.1 ${#arr[i]} bug
+    COMPV=$part ble/complete/candidates/filter:"$filter_type"/count-match-chars "${vparts[i]}" || return 1
 
     # Note: 最後の成分以外は入力を全て消費していなければならない。途中の成分が
-    #   部分的にしか一致していない時は成分の対応付け自体が誤っている。
-    ((_ble_local_i+1<_ble_local_iN&&ret<${#_ble_local_part})) && return 1
-    ((_ble_local_n+=ret))
+    #   部分的にしか一致していないのは成分の対応付けが誤っている事を意味する。
+    ((i+1<iN&&ret<${#part})) && return 1
+    ((count+=ret))
   done
 
-  ret=$_ble_local_n
+  ret=$count
   return 0
 }
 
 ## @fn ble/complete/candidates/count-match-chars filter_type value
-##   value が COMPV の何処まで一致するかを返します。
+##   value が COMPV の先頭から何文字に一致するかを数えます。
 ##
-##   Note: #D2427 パス名の曖昧一致は
-##   ble/complete/source:file/.construct-ambiguous-pathname-pattern により / で
-##   区切られた成分毎に判定される。一方で filter:*/count-match-chars は文字列全
-##   体でしか一致を調べない為、成分を跨ぐ一致を数え損ねる。数えられなかった時は
-##   成分毎に数え直す。
+##   Note: #D2427 パス名に対する曖昧一致は
+##     ble/complete/source:file/.construct-ambiguous-pathname-pattern により /
+##     で区切られた成分毎に判定される。一方で filter:*/count-match-chars は文字
+##     列全体でしか一致を調べない為、成分を跨ぐ一致を数えられない。数えられな
+##     かった時は成分毎に数え直す。
 ##
 ##   @param[in] filter_type value
 ##   @var[in] COMPV comp_type comps_fixed
 ##   @var[out] ret
 ##   @exit 一致文字数を確定できた時に成功します。
 function ble/complete/candidates/count-match-chars {
-  local _ble_local_type=$1 _ble_local_value=$2
-  ble/complete/candidates/filter:"$_ble_local_type"/count-match-chars "$_ble_local_value"
-  local _ble_local_ext=$? _ble_local_ret=$ret
-  ((_ble_local_ext==0&&ret>0)) && return 0
+  local filter_type=$1 value=$2
+  ble/complete/candidates/filter:"$filter_type"/count-match-chars "$value"
+  local ext=$? ret0=$ret
+  ((ext==0&&ret>0)) && return 0
 
-  [[ $_ble_local_value == */* && $COMPV == */* ]] &&
-    ble/complete/candidates/count-match-chars/.by-path "$_ble_local_type" "$_ble_local_value" &&
+  [[ $value == */* && $COMPV == */* ]] &&
+    ble/complete/candidates/count-match-chars/.by-path "$filter_type" "$value" &&
     return 0
 
-  ret=$_ble_local_ret
-  return "$_ble_local_ext"
+  # Note: 成分毎の解釈が適用できない時は元の結果に戻す。filter_type == head で
+  #   ret=0 の時に呼び出し元が is_processed=1 とする振る舞いを保つ為。
+  ret=$ret0
+  return "$ext"
 }
 
 function ble/complete/candidates/generate-with-filter {
@@ -7546,7 +7548,11 @@ function ble/complete/candidates/determine-common-prefix {
           fi
         fi
 
-        [[ $is_processed ]] || common=$common0$COMPS
+        # Note: #D2427 一致文字数を確定できなかった時、以前は common0 と COMPS
+        #   を連結していたが、これは候補にも入力にも一致しない文字列を挿入する
+        #   事になる (例: "sub/bc" に対して "sub/abcsub/bc")。入力を保持する為
+        #   の措置だったが、確定できない時は補完挿入を行わない方が安全である。
+        #   common は既に COMPS に設定されているのでここでは何もしない。
       fi
 
     else

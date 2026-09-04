@@ -3,7 +3,7 @@
 ble-import lib/core-complete
 ble-import lib/core-test
 
-ble/test/start-section 'ble/complete' 20
+ble/test/start-section 'ble/complete' 21
 
 (
   ## @fn _collect
@@ -99,6 +99,34 @@ ble/test/start-section 'ble/complete' 20
   # 先頭一致する時の振る舞いは変わらない
   ble/test '_common m sub/ab'        ret='sub/abc'
   ble/test '_common m sub/deep/xyz'  ret='sub/deep/xyz'
+
+  ble/test/rmdir
+)
+
+# #D2427 共通部分が入力の何処にも一致しない時は補完挿入を行わない
+(
+  ## @fn _common ambiguous_flag comps
+  ##   @var[out] ret
+  function _common {
+    local comp_type=:sync:$1: comps_flags=v comps_fixed=
+    local COMPS=$2 COMPV=$2 COMP1=0 COMP2=${#2}
+    local comp_filter_type=substr comp_filter_pattern=
+    local flag_source_filter=1
+    local cand_count cand_limit_reached
+    local -a cand_cand cand_word cand_pack
+    ble/complete/candidates/clear
+    ble/complete/source:file
+    ret=
+    ble/complete/candidates/determine-common-prefix
+  }
+
+  ble/test/chdir || exit
+  command mkdir -p qsubq qsubq2
+  command touch qsubq/abc qsubq2/xbc
+
+  # Note: 候補の共通部分 "qsubq" は入力 "sub/bc" の何処にも一致しない。以前は共
+  #   通部分と入力を連結して "qsubqsub/bc" を挿入していた。
+  ble/test '_common m sub/bc' ret='sub/bc'
 
   ble/test/rmdir
 )
