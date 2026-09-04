@@ -7233,6 +7233,66 @@ function ble/complete/candidates/filter:subseq/match {
   ble/complete/candidates/filter:hsubseq/match "$1" "$2" 0
 }
 
+## @fn ble/complete/candidates/count-match-chars/.by-path filter_type value
+##   パス名の各成分に対して一致文字数を数え上げます。
+##   @param[in] filter_type value
+##   @var[in] COMPV comp_type comps_fixed
+##   @var[out] ret
+##   @exit 成分毎の一致を確認できた時に成功します。
+function ble/complete/candidates/count-match-chars/.by-path {
+  local _ble_local_type=$1 _ble_local_value=$2
+  local -a _ble_local_cparts _ble_local_vparts
+  ble/string#split _ble_local_cparts / "$COMPV"
+  ble/string#split _ble_local_vparts / "$_ble_local_value"
+
+  # Note: パターン中の * は / に一致しない為、候補の成分数は COMPV の成分数以上
+  #   になる (末尾に / が付加される事があるので一致するとは限らない)。
+  local _ble_local_iN=${#_ble_local_cparts[@]}
+  ((${#_ble_local_vparts[@]}>=_ble_local_iN)) || return 1
+
+  local _ble_local_i _ble_local_n=0 _ble_local_part
+  for ((_ble_local_i=0;_ble_local_i<_ble_local_iN;_ble_local_i++)); do
+    ((_ble_local_i&&_ble_local_n++)) # 区切りの / の分
+    _ble_local_part=${_ble_local_cparts[_ble_local_i]}
+    COMPV=$_ble_local_part ble/complete/candidates/filter:"$_ble_local_type"/count-match-chars "${_ble_local_vparts[_ble_local_i]}" || return 1
+
+    # Note: 最後の成分以外は入力を全て消費していなければならない。途中の成分が
+    #   部分的にしか一致していない時は成分の対応付け自体が誤っている。
+    ((_ble_local_i+1<_ble_local_iN&&ret<${#_ble_local_part})) && return 1
+    ((_ble_local_n+=ret))
+  done
+
+  ret=$_ble_local_n
+  return 0
+}
+
+## @fn ble/complete/candidates/count-match-chars filter_type value
+##   value が COMPV の何処まで一致するかを返します。
+##
+##   Note: #D2427 パス名の曖昧一致は
+##   ble/complete/source:file/.construct-ambiguous-pathname-pattern により / で
+##   区切られた成分毎に判定される。一方で filter:*/count-match-chars は文字列全
+##   体でしか一致を調べない為、成分を跨ぐ一致を数え損ねる。数えられなかった時は
+##   成分毎に数え直す。
+##
+##   @param[in] filter_type value
+##   @var[in] COMPV comp_type comps_fixed
+##   @var[out] ret
+##   @exit 一致文字数を確定できた時に成功します。
+function ble/complete/candidates/count-match-chars {
+  local _ble_local_type=$1 _ble_local_value=$2
+  ble/complete/candidates/filter:"$_ble_local_type"/count-match-chars "$_ble_local_value"
+  local _ble_local_ext=$? _ble_local_ret=$ret
+  ((_ble_local_ext==0&&ret>0)) && return 0
+
+  [[ $_ble_local_value == */* && $COMPV == */* ]] &&
+    ble/complete/candidates/count-match-chars/.by-path "$_ble_local_type" "$_ble_local_value" &&
+    return 0
+
+  ret=$_ble_local_ret
+  return "$_ble_local_ext"
+}
+
 function ble/complete/candidates/generate-with-filter {
   local filter_type=$1 opts=$2
   local -a remaining_sources nearest_sources
@@ -7442,7 +7502,7 @@ function ble/complete/candidates/determine-common-prefix {
         local is_processed=
         ble/complete/source/eval-simple-word "$common_reconstructed" single; local ext=$?
         ((ext==148)) && return 148
-        if ((ext==0)) && ble/complete/candidates/filter:"$filter_type"/count-match-chars "$ret"; then
+        if ((ext==0)) && ble/complete/candidates/count-match-chars "$filter_type" "$ret"; then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
             # Note: #D1181 ここに来たという事は外部の枠組みで
@@ -7470,7 +7530,7 @@ function ble/complete/candidates/determine-common-prefix {
              local compv_notilde=$ret &&
              ble/syntax:bash/simple-word/eval "$notilde$common_reconstructed" noglob &&
              local commonv_notilde=$ret &&
-             COMPV=$compv_notilde ble/complete/candidates/filter:"$filter_type"/count-match-chars "$commonv_notilde"
+             COMPV=$compv_notilde ble/complete/candidates/count-match-chars "$filter_type" "$commonv_notilde"
         then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1

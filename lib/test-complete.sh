@@ -3,7 +3,7 @@
 ble-import lib/core-complete
 ble-import lib/core-test
 
-ble/test/start-section 'ble/complete' 7
+ble/test/start-section 'ble/complete' 20
 
 (
   ## @fn _collect
@@ -30,6 +30,77 @@ ble/test/start-section 'ble/complete' 7
   ble/test 'args=(Mak Makefile 1); ble/complete/candidates/filter:hsubseq/match "${args[@]}"; _collect' ret='[Mak]efile'
   ble/test 'args=(ake Makefile 0); ble/complete/candidates/filter:hsubseq/match "${args[@]}"; _collect' ret='M[ake]file'
   ble/test 'args=(afe Makefile 0); ble/complete/candidates/filter:hsubseq/match "${args[@]}"; _collect' ret='M[a]ke[f]il[e]'
+)
+
+# #D2427 #682 曖昧補完に於けるパス名の成分毎の一致文字数
+(
+  ## @fn _count comp_type compv value
+  ##   @var[out] ret
+  function _count {
+    local comp_type=$1 comps_fixed= COMPV=$2
+    local filter_type=substr
+    case :$comp_type: in
+    (*:a:*) filter_type=hsubseq ;;
+    (*:A:*) filter_type=subseq ;;
+    esac
+    ble/complete/candidates/count-match-chars "$filter_type" "$3"
+  }
+
+  # 単一成分 (従来通り文字列全体で数える)
+  ble/test '_count :m: bc abc'                     ret=2
+  ble/test '_count :m: sub/ab sub/abc'             ret=6
+
+  # 複数成分 (#682 成分を跨ぐ一致は文字列全体では数えられない)
+  ble/test '_count :m: sub/bc sub/abc'             ret=6
+  ble/test '_count :m: sub/deep/yz sub/deep/xyz'   ret=11
+  ble/test '_count :m: /tmp/bc /tmp/abc'           ret=7
+
+  # 末尾の成分は部分一致で良い (残りは後から挿入される)
+  ble/test '_count :m: sub/bcq sub/abc'            ret=6
+
+  # 途中の成分が一致しない時は成分の対応付けが誤っているので数えない
+  ble/test '_count :m: xx/bc sub/abc'              ret=0
+
+  # hsubseq は文字列全体でも / を跨いで数えられる
+  ble/test '_count :a: sub/ac sub/abc'             ret=6
+)
+
+# #D2427 #682 存在しない部分文字列を含むパスの補完
+(
+  ## @fn _common ambiguous_flag comps
+  ##   @var[out] ret
+  function _common {
+    local comp_type=:sync:$1: comps_flags=v comps_fixed=
+    local COMPS=$2 COMPV=$2 COMP1=0 COMP2=${#2}
+    local comp_filter_type=substr comp_filter_pattern=
+    case $1 in
+    (a) comp_filter_type=hsubseq ;;
+    (A) comp_filter_type=subseq ;;
+    esac
+    local flag_source_filter=1
+    local cand_count cand_limit_reached
+    local -a cand_cand cand_word cand_pack
+    ble/complete/candidates/clear
+    ble/complete/source:file
+    ret=
+    ble/complete/candidates/determine-common-prefix
+  }
+
+  ble/test/chdir || exit
+  command mkdir -p sub/deep
+  command touch sub/abc1 sub/abc2 sub/abc3
+  command touch sub/deep/xyz1 sub/deep/xyz2
+
+  # Note: #682 以前は共通部分と入力が連結されて "sub/abcsub/bc" になっていた。
+  ble/test '_common m sub/bc'        ret='sub/abc'
+  ble/test '_common m sub/deep/yz'   ret='sub/deep/xyz'
+  ble/test '_common A sub/deep/xz'   ret='sub/deep/xyz'
+
+  # 先頭一致する時の振る舞いは変わらない
+  ble/test '_common m sub/ab'        ret='sub/abc'
+  ble/test '_common m sub/deep/xyz'  ret='sub/deep/xyz'
+
+  ble/test/rmdir
 )
 
 ble/test/end-section
