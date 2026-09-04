@@ -215,6 +215,7 @@
   - util (`ble/path#canonicalize`): fix infinite loops (fixup d8ad40e7) (reported by chill-nemesis) `#D2426` 63c23e99
 - nsearch: fix the search position after a forward mismatch (reported by NitramO-YT, fixed by dfherr) `#D2430` 5fe06d62
 - global: generate cache atomically (reported by RakibFiha, fixed by vnz) `#D2432` xxxxxxxx
+- complete: fix ambiguous pathname completion inserting the common prefix concatenated with the input (reported by Jai-JAP) `#D2427` xxxxxxxx
 
 ## Compatibility
 
