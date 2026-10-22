@@ -3404,7 +3404,7 @@ function ble/complete/progcomp/.compvar-quote-subword {
     if ((p==${#1})); then
       p=${#word}
     else
-      local left=${word::p}
+      local left=${1::p}
       if [[ $is_evaluated ]]; then
         if ble/syntax:bash/simple-word/reconstruct-incomplete-word "$left"; then
           ble/complete/progcomp/.compvar-eval-word "$ret"; (($?==148)) && return 148; left=$ret
