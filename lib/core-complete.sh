@@ -7370,6 +7370,37 @@ function ble/completion/candidates/determine-common-prefix/.is-progcomp-raw {
   [[ $DATA == *:ble/syntax-raw:* ]]
 }
 
+function ble/complete/candidates/determine-common-prefix/.count-match-chars {
+  local filter_type=$1 value=$2 compv=$3
+
+  local COMPV=$compv
+  ble/complete/candidates/filter:"$filter_type"/count-match-chars "$value"; local ext=$?
+  ((ext==0&&ret)) && return 0
+
+  # Ambiguous pathname matches are component-wise (#682).
+  [[ :$comp_type: == *:[maA]:* && $filter_type != head && $value == */* && $compv == */* ]] ||
+    { ret=0; return "$ext"; }
+
+  local -a value_parts compv_parts
+  ble/string#split value_parts / "$value"
+  ble/string#split compv_parts / "$compv"
+  ((${#value_parts[@]}>=${#compv_parts[@]})) || { ret=0; return "$ext"; }
+
+  local i matched=0
+  for i in "${!compv_parts[@]}"; do
+    ((i)) && ((matched++))
+    local part=${compv_parts[i]}
+    COMPV=$part ble/complete/candidates/filter:"$filter_type"/count-match-chars "${value_parts[i]}" ||
+      { ret=0; return "$ext"; }
+    local m=$ret
+    ((i+1==${#compv_parts[@]}||m==${#part})) || { ret=0; return "$ext"; }
+    ((matched+=m))
+  done
+
+  ret=$matched
+  ((ret))
+}
+
 ## @fn ble/complete/candidates/determine-common-prefix
 ##   cand_* を元に common prefix を算出します。
 ##   @var[in] cand_*
@@ -7442,7 +7473,7 @@ function ble/complete/candidates/determine-common-prefix {
         local is_processed=
         ble/complete/source/eval-simple-word "$common_reconstructed" single; local ext=$?
         ((ext==148)) && return 148
-        if ((ext==0)) && ble/complete/candidates/filter:"$filter_type"/count-match-chars "$ret"; then
+        if ((ext==0)) && ble/complete/candidates/determine-common-prefix/.count-match-chars "$filter_type" "$ret" "$COMPV"; then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
             # Note: #D1181 ここに来たという事は外部の枠組みで
@@ -7470,7 +7501,7 @@ function ble/complete/candidates/determine-common-prefix {
              local compv_notilde=$ret &&
              ble/syntax:bash/simple-word/eval "$notilde$common_reconstructed" noglob &&
              local commonv_notilde=$ret &&
-             COMPV=$compv_notilde ble/complete/candidates/filter:"$filter_type"/count-match-chars "$commonv_notilde"
+             ble/complete/candidates/determine-common-prefix/.count-match-chars "$filter_type" "$commonv_notilde" "$compv_notilde"
         then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
