@@ -132,3 +132,43 @@ ble/test/start-section 'ble/complete' 21
 )
 
 ble/test/end-section
+
+ble/test/start-section 'ble/complete/progcomp' 13
+
+# A tilde after a wordbreak is not expanded unless the word is an assignment
+(
+  ## @fn _compvar [-p POINT] words...
+  ##   Construct COMP_WORDS for the command line "words..." with the cursor at
+  ##   POINT in the last word (default: end of line).
+  ##   @var[out] ret
+  ##     The last element of COMP_WORDS.
+  function _compvar {
+    local point=; [[ $1 == -p ]] && point=$2 && shift 2
+    local -a comp_words=("$@")
+    local comp_cword=$((${#comp_words[@]}-1)) comp_line comp_point
+    comp_line="${comp_words[*]}" comp_point=${#comp_line}
+    [[ $point ]] && ((comp_point-=${#comp_words[comp_cword]}-point))
+    local COMP_WORDBREAKS=$' \t\n"\'><=;|&(:'
+    local COMP_WORDS COMP_CWORD COMP_LINE COMP_POINT COMP_TYPE COMP_KEY cmd cur prev progcomp_prefix
+    local comp_type=:sync:
+    ble/complete/progcomp/.compvar-initialize
+    ret=${COMP_WORDS[${#COMP_WORDS[@]}-1]}
+  }
+  ble/test '_compvar scp "host:~/"' ret="'~/'"
+  ble/test '_compvar scp "host:~/Docs/"' ret="'~/Docs/'"
+  ble/test '_compvar scp "host:~"' ret="'~'"
+  ble/test '_compvar cmd "--opt=~/"' ret="'~/'"
+  ble/test '_compvar cmd "a:b:~/x"' ret="'~/x'"
+  ble/test '_compvar scp "~/a:~/"' ret="'~/'"
+  ble/test '_compvar -p 5 scp "host:~/Docs"' ret="'~/Docs'"
+  ble/test '_compvar scp "host:/abs/"' ret='/abs/'
+
+  # a tilde at the beginning of a word or in an assignment is expanded
+  ble/test '_compvar scp "~/"' ret="$HOME/"
+  ble/test '_compvar cmd "VAR=a:~/"' ret="$HOME/"
+  ble/test '_compvar export "PATH=/x:~/"' ret="$HOME/"
+  ble/test '_compvar cmd "a[1]+=x:~/"' ret="$HOME/"
+  ble/test '_compvar -p 0 scp "~/Docs"' ret="$HOME/Docs"
+)
+
+ble/test/end-section
