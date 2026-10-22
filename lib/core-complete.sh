@@ -3260,12 +3260,23 @@ function ble/complete/progcomp/.compvar-generate-subwords/impl1 {
 
   point=0 words=()
 
+  # Bash does not perform the tilde expansion after a wordbreak (e.g. "~" in
+  # "host:~/") unless the word has the form of an assignment (e.g.
+  # "PATH=/x:~/").  When we evaluate subwords separately, we need to quote such
+  # a tilde.
+  local protect_tilde=1
+  local rex_assign='^[_a-zA-Z0-9]+(\['$_ble_syntax_bash_simple_rex_element'*\])?\+?='
+  [[ $word =~ $rex_assign ]] && protect_tilde=
+
   # 単語毎に評価 (前半)
   local eval_opts=noglob
   ((${#ret[@]}==1)) && eval_opts=
   ble/syntax:bash/simple-word#break-word "$left" "$wordbreaks"
-  local subword
+  local subword isub=0
   for subword in "${ret[@]}"; do
+    [[ $protect_tilde && $subword == '~'* ]] && ((isub>0&&isub%2==0)) &&
+      subword=\\$subword
+    ((isub++))
     ble/complete/progcomp/.compvar-eval-word "$subword" "$eval_opts"
     ble/array#push words "$ret"
     ((point+=${#ret}))
@@ -3274,8 +3285,15 @@ function ble/complete/progcomp/.compvar-generate-subwords/impl1 {
   # 単語毎に評価 (後半)
   if [[ $right ]]; then
     ble/syntax:bash/simple-word#break-word "$right" "$wordbreaks"
+    # The first subword of the right half continues the last subword of the
+    # left half.  It follows a wordbreak when the left half ends with one.
+    local isub=0
+    [[ ${words[${#words[@]}-1]} ]] || ((isub=${#words[@]}-1))
     local subword isfirst=1
     for subword in "${ret[@]}"; do
+      [[ $protect_tilde && $subword == '~'* ]] && ((isub>0&&isub%2==0)) &&
+        subword=\\$subword
+      ((isub++))
       ble/complete/progcomp/.compvar-eval-word "$subword" noglob
       if [[ $isfirst ]]; then
         isfirst=
