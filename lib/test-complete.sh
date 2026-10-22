@@ -133,16 +133,17 @@ ble/test/start-section 'ble/complete' 21
 
 ble/test/end-section
 
-ble/test/start-section 'ble/complete/progcomp' 13
+ble/test/start-section 'ble/complete/progcomp' 17
 
 # A tilde after a wordbreak is not expanded unless the word is an assignment
 (
-  ## @fn _compvar [-p POINT] words...
+  ## @fn _compvar [-c] [-p POINT] words...
   ##   Construct COMP_WORDS for the command line "words..." with the cursor at
   ##   POINT in the last word (default: end of line).
   ##   @var[out] ret
-  ##     The last element of COMP_WORDS.
+  ##     The last element of COMP_WORDS, or "cur" when -c is specified.
   function _compvar {
+    local get_cur=; [[ $1 == -c ]] && get_cur=1 && shift
     local point=; [[ $1 == -p ]] && point=$2 && shift 2
     local -a comp_words=("$@")
     local comp_cword=$((${#comp_words[@]}-1)) comp_line comp_point
@@ -153,6 +154,7 @@ ble/test/start-section 'ble/complete/progcomp' 13
     local comp_type=:sync:
     ble/complete/progcomp/.compvar-initialize
     ret=${COMP_WORDS[${#COMP_WORDS[@]}-1]}
+    [[ $get_cur ]] && ret=$cur
   }
   ble/test '_compvar scp "host:~/"' ret="'~/'"
   ble/test '_compvar scp "host:~/Docs/"' ret="'~/Docs/'"
@@ -169,6 +171,12 @@ ble/test/start-section 'ble/complete/progcomp' 13
   ble/test '_compvar export "PATH=/x:~/"' ret="$HOME/"
   ble/test '_compvar cmd "a[1]+=x:~/"' ret="$HOME/"
   ble/test '_compvar -p 0 scp "~/Docs"' ret="$HOME/Docs"
+
+  # cur should end at the cursor when the current subword is requoted
+  ble/test '_compvar -c -p 7 scp "host:~/Docs"' ret='~/'
+  ble/test '_compvar -c -p 7 scp "host:~nosuchuser/x"' ret='~n'
+  ble/test '_compvar -c scp "host:~/Docs"' ret="'~/Docs'"
+  ble/test '_compvar -c -p 6 cmd "a:b c/x"' ret='c/'
 )
 
 ble/test/end-section

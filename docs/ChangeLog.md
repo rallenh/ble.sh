@@ -217,6 +217,7 @@
 - global: generate cache atomically (reported by RakibFiha, fixed by vnz) `#D2432` xxxxxxxx
 - complete: fix ambiguous pathname completion inserting the common prefix concatenated with the input (reported by Jai-JAP) `#D2427` xxxxxxxx
 - complete: do not expand a tilde after a wordbreak in non-assignment words (e.g. `scp host:~/`) `#Dxxxx` xxxxxxxx
+- complete: fix `cur` for progcomp when the cursor is inside a requoted subword `#Dxxxx` xxxxxxxx
 
 ## Compatibility
 
