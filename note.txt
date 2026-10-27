@@ -8229,6 +8229,82 @@ bash_tips
     Done (実装ログ)
 -------------------------------------------------------------------------------
 
+2026-10-27
+
+  * history: get-min が未だ遅い。速くできる余地がある (reported by digitalguy99) [#D2435]
+    https://github.com/akinomyoga/ble.sh/pull/737
+    https://github.com/akinomyoga/ble.sh/issues/202#issuecomment-1171860974
+
+    Ref: #D1831
+
+    Claude の提案によると HISTTIMEFORMAT= を設定してから builtin history を自前
+    で読み出す様にしている。しかし、問題の解決は HISTTIMEFORMAT= の方であって、
+    何故自前で読み出す部分まで新しく実装しているのか謎である。
+
+    ? そもそも HISTTIMEFORMAT= を指定していさえすれば問題は発生しないのだろうか?
+      conditional-sync を呼び出すように変更したきっかけとなったのは #D1831 の様
+      である。#D1831 を見てもそもそもの問題の再現方法がよく分からなかったが、
+      Ref. [1] の方に問題の再現状況が書かれている。取り敢えずこれに倣って振る舞
+      いを確認すれば良い。
+
+      [1] https://github.com/akinomyoga/ble.sh/issues/202#issuecomment-1171860974
+
+      というか memo/D1831.bashrc にちゃんと再現コードが残っていた。これを確認す
+      れば良い。
+
+      OK 無限ループを確認した。次に HISTTIMEFORMAT を空にして確認してみる。OK。
+      HISTTIMEFORMAT を空にしたら無限ループにはならなかった。また、同じセッショ
+      ンで HISTTIMEFORMAT を改めて %s に設定してみたらやはり無限ループが生じる。
+      つまり、HISTTIMEFORMAT を空にする事で問題を回避することができるということ。
+
+      というか GitHub#737 を見たら Claude は無限ループの振る舞いまでちゃんと
+      bash-3.2 で確認している様である。というかどうやって具体的な #999...999 と
+      いう問題を起こす timestamp を知ったのだろうか? memo/done.txt まで読んで知っ
+      たのだろうか? 或いは、 memo/D1831.history から知ったのだろうか? 或いは、
+      web に残っている議論から知ったのだろうか? referecens が全くないのでよく分
+      からない。それが Claude PR の問題である。書かれていることの確かめようがな
+      い。
+
+  * util (msleep): macOS の sleep が認識されていない (reported by digitalguy99) [#D2434]
+    https://github.com/akinomyoga/ble.sh/pull/737
+
+    Ref: #D1194 6ff4d2b5 846f2841
+
+    version check に用いている文字列の形式が異なるそうだ。恐らく macOS sleep が
+    出力の形式を変更した。
+
+    ? ok: というよりこれまでの文字列は一体何を元にしていたのだろうか。従来のチェッ
+      クが追加されたのは 6ff4d2b5 であるが、ここには何の説明も書かれていない。
+      と思ったら次の commit に説明が書かれている。どうも Ref. [1] の報告に出て
+      いる sleep を元にした物の様である。但し、Ref. [1] ではそのエラーメッセー
+      ジが確かに /bin/sleep から出力されたものであるということも、その sleep が
+      小数に対応しているということも確認したとは 846f2841 には書かれていない。
+      当時、適当に検索して macOS sleep が小数に対応しているという事を確認したと
+      いうことeかもしれない。この報告があったのは 2020-01-04 なので、その当時の
+      macOS は "usage: sleep seconds" を出力していたと推測される。
+
+      [1] https://github.com/akinomyoga/ble.sh/issues/33
+
+    * これは macOS で bash 3.2 を使っている時に起こる問題である。そもそも
+      bash-4.0 以上では read -t time や builtin sleep の使用を試みるので、
+      fallback として /bin/sleep が使われる状況は限定される。
+
+    * PR では [[ $version == *'usage: sleep '* ]] をチェックするように変更して
+      いるがこれは何もチェックしていないのとほぼ同義である。何も特定の sleep 実
+      装特有の文字列を含んでいない。動くケースしかテストしていなくて動かないケー
+      スについてはテストしていない。人間だったらしないような修正である。
+
+2026-10-02
+
+  * ble-summary: msys の時に cygwin となってしまっているが msys であるの事も検出して出力するべきでは [#D2433]
+
+    ? no: と思ったが os_release にその情報が既に入っているのではないか? 実際に
+      確認した所ちゃんと [MSYS2] という具合に既に出力されているので改めて出力す
+      る必要はない。と思ったがこれは MSYS2 だけだった。
+
+    * Git for Windows の Git Bash では何も表示されない。なのでやはり os_release
+      が決定できない時には os-release を観察するべき。
+
 2026-09-07
 
   * global: generate cache atomically (reported by RakibFiha, fixed by vnz) [#D2432]
