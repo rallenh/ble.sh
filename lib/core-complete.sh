@@ -3260,23 +3260,12 @@ function ble/complete/progcomp/.compvar-generate-subwords/impl1 {
 
   point=0 words=()
 
-  # Bash does not perform the tilde expansion after a wordbreak (e.g. "~" in
-  # "host:~/") unless the word has the form of an assignment (e.g.
-  # "PATH=/x:~/").  When we evaluate subwords separately, we need to quote such
-  # a tilde.
-  local protect_tilde=1
-  local rex_assign='^[_a-zA-Z][_a-zA-Z0-9]*(\['$_ble_syntax_bash_simple_rex_element'*\])?\+?='
-  [[ $word =~ $rex_assign ]] && protect_tilde=
-
   # 単語毎に評価 (前半)
   local eval_opts=noglob
   ((${#ret[@]}==1)) && eval_opts=
   ble/syntax:bash/simple-word#break-word "$left" "$wordbreaks"
-  local subword isub=0
+  local subword
   for subword in "${ret[@]}"; do
-    [[ $protect_tilde && $subword == '~'* ]] && ((isub>0&&isub%2==0)) &&
-      subword=\\$subword
-    ((isub++))
     ble/complete/progcomp/.compvar-eval-word "$subword" "$eval_opts"
     ble/array#push words "$ret"
     ((point+=${#ret}))
@@ -3285,15 +3274,8 @@ function ble/complete/progcomp/.compvar-generate-subwords/impl1 {
   # 単語毎に評価 (後半)
   if [[ $right ]]; then
     ble/syntax:bash/simple-word#break-word "$right" "$wordbreaks"
-    # The first subword of the right half continues the last subword of the
-    # left half.  It follows a wordbreak when the left half ends with one.
-    local isub=0
-    [[ ${words[${#words[@]}-1]} ]] || ((isub=${#words[@]}-1))
     local subword isfirst=1
     for subword in "${ret[@]}"; do
-      [[ $protect_tilde && $subword == '~'* ]] && ((isub>0&&isub%2==0)) &&
-        subword=\\$subword
-      ((isub++))
       ble/complete/progcomp/.compvar-eval-word "$subword" noglob
       if [[ $isfirst ]]; then
         isfirst=
@@ -3404,7 +3386,7 @@ function ble/complete/progcomp/.compvar-quote-subword {
     if ((p==${#1})); then
       p=${#word}
     else
-      local left=${1::p}
+      local left=${word::p}
       if [[ $is_evaluated ]]; then
         if ble/syntax:bash/simple-word/reconstruct-incomplete-word "$left"; then
           ble/complete/progcomp/.compvar-eval-word "$ret"; (($?==148)) && return 148; left=$ret
@@ -7261,68 +7243,6 @@ function ble/complete/candidates/filter:subseq/match {
   ble/complete/candidates/filter:hsubseq/match "$1" "$2" 0
 }
 
-## @fn ble/complete/candidates/count-match-chars/.by-path filter_type value
-##   パス名の成分毎に COMPV の一致文字数を数え上げます。
-##   @param[in] filter_type value
-##   @var[in] COMPV comp_type comps_fixed
-##   @var[out] ret
-##   @exit 成分毎の一致を確認できた時に成功します。
-function ble/complete/candidates/count-match-chars/.by-path {
-  local filter_type=$1 value=$2
-  local -a cparts vparts
-  ble/string#split cparts / "$COMPV"
-  ble/string#split vparts / "$value"
-
-  # Note: パターン中の * は / に一致しない為、候補の成分数は COMPV の成分数以上
-  #   になる (候補には末尾に / が付加される事がある)。
-  local iN=${#cparts[@]}
-  ((${#vparts[@]}>=iN)) || return 1
-
-  local i count=0 part
-  for ((i=0;i<iN;i++)); do
-    ((i&&count++)) # 区切りの / の分
-    part=${cparts[i]} # workaround bash-3.1 ${#arr[i]} bug
-    COMPV=$part ble/complete/candidates/filter:"$filter_type"/count-match-chars "${vparts[i]}" || return 1
-
-    # Note: 最後の成分以外は入力を全て消費していなければならない。途中の成分が
-    #   部分的にしか一致していないのは成分の対応付けが誤っている事を意味する。
-    ((i+1<iN&&ret<${#part})) && return 1
-    ((count+=ret))
-  done
-
-  ret=$count
-  return 0
-}
-
-## @fn ble/complete/candidates/count-match-chars filter_type value
-##   value が COMPV の先頭から何文字に一致するかを数えます。
-##
-##   Note: #D2427 パス名に対する曖昧一致は
-##     ble/complete/source:file/.construct-ambiguous-pathname-pattern により /
-##     で区切られた成分毎に判定される。一方で filter:*/count-match-chars は文字
-##     列全体でしか一致を調べない為、成分を跨ぐ一致を数えられない。数えられな
-##     かった時は成分毎に数え直す。
-##
-##   @param[in] filter_type value
-##   @var[in] COMPV comp_type comps_fixed
-##   @var[out] ret
-##   @exit 一致文字数を確定できた時に成功します。
-function ble/complete/candidates/count-match-chars {
-  local filter_type=$1 value=$2
-  ble/complete/candidates/filter:"$filter_type"/count-match-chars "$value"
-  local ext=$? ret0=$ret
-  ((ext==0&&ret>0)) && return 0
-
-  [[ $value == */* && $COMPV == */* ]] &&
-    ble/complete/candidates/count-match-chars/.by-path "$filter_type" "$value" &&
-    return 0
-
-  # Note: 成分毎の解釈が適用できない時は元の結果に戻す。filter_type == head で
-  #   ret=0 の時に呼び出し元が is_processed=1 とする振る舞いを保つ為。
-  ret=$ret0
-  return "$ext"
-}
-
 function ble/complete/candidates/generate-with-filter {
   local filter_type=$1 opts=$2
   local -a remaining_sources nearest_sources
@@ -7532,7 +7452,7 @@ function ble/complete/candidates/determine-common-prefix {
         local is_processed=
         ble/complete/source/eval-simple-word "$common_reconstructed" single; local ext=$?
         ((ext==148)) && return 148
-        if ((ext==0)) && ble/complete/candidates/count-match-chars "$filter_type" "$ret"; then
+        if ((ext==0)) && ble/complete/candidates/filter:"$filter_type"/count-match-chars "$ret"; then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
             # Note: #D1181 ここに来たという事は外部の枠組みで
@@ -7560,7 +7480,7 @@ function ble/complete/candidates/determine-common-prefix {
              local compv_notilde=$ret &&
              ble/syntax:bash/simple-word/eval "$notilde$common_reconstructed" noglob &&
              local commonv_notilde=$ret &&
-             COMPV=$compv_notilde ble/complete/candidates/count-match-chars "$filter_type" "$commonv_notilde"
+             COMPV=$compv_notilde ble/complete/candidates/filter:"$filter_type"/count-match-chars "$commonv_notilde"
         then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
@@ -7576,11 +7496,7 @@ function ble/complete/candidates/determine-common-prefix {
           fi
         fi
 
-        # Note: #D2427 一致文字数を確定できなかった時、以前は common0 と COMPS
-        #   を連結していたが、これは候補にも入力にも一致しない文字列を挿入する
-        #   事になる (例: "sub/bc" に対して "sub/abcsub/bc")。入力を保持する為
-        #   の措置だったが、確定できない時は補完挿入を行わない方が安全である。
-        #   common は既に COMPS に設定されているのでここでは何もしない。
+        [[ $is_processed ]] || common=$common0$COMPS
       fi
 
     else
