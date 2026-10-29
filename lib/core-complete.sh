@@ -7370,6 +7370,46 @@ function ble/completion/candidates/determine-common-prefix/.is-progcomp-raw {
   [[ $DATA == *:ble/syntax-raw:* ]]
 }
 
+## @fn ble/complete/candidates/determine-common-prefix/.count-match-chars filter_type value
+##   Count the number of characters in COMPV matched by VALUE.  This is
+##   filter:FILTER_TYPE/count-match-chars, except that a pathname is counted
+##   component by component for filter_type=substr.
+##
+##   Since #D2396, comp_type=m generates pathnames by a substring match of each
+##   path component ("sub/bc" -> "*sub*/*bc*"), so a candidate such as
+##   "sub/abc1" does not contain COMPV as a whole.  Counting the whole string
+##   then gives 0 or a misaligned partial count, and the common prefix and COMPV
+##   are concatenated ("sub/abcsub/bc").  https://github.com/akinomyoga/ble.sh/issues/682
+##
+##   @param[in] filter_type value
+##   @var[in] COMPV comp_type
+##   @var[out] ret
+function ble/complete/candidates/determine-common-prefix/.count-match-chars {
+  local filter_type=$1 value=$2
+  ble/complete/candidates/filter:"$filter_type"/count-match-chars "$value" || return "$?"
+  [[ $filter_type == substr && $COMPV == */* && $value == */* ]] || return 0
+  ((ret<${#COMPV})) || return 0
+
+  local -a cparts vparts
+  ble/string#split cparts / "$COMPV"
+  ble/string#split vparts / "$value"
+  local n=${#cparts[@]}
+  ((${#vparts[@]}<n)) && n=${#vparts[@]}
+
+  local i part count=0 ret0=$ret
+  for ((i=0;i<n;i++)); do
+    ((i)) && ((count++)) # for "/"
+    part=${cparts[i]}
+    COMPV=$part ble/complete/candidates/filter:substr/count-match-chars "${vparts[i]}"
+    ((count+=ret))
+    # The rest of COMPV is appended after VALUE, so only the last component of
+    # VALUE may be partially matched.
+    ((ret<${#part}&&i<${#vparts[@]}-1)) && { ret=$ret0; return 0; }
+  done
+  ret=$count
+  return 0
+}
+
 ## @fn ble/complete/candidates/determine-common-prefix
 ##   cand_* を元に common prefix を算出します。
 ##   @var[in] cand_*
@@ -7442,7 +7482,7 @@ function ble/complete/candidates/determine-common-prefix {
         local is_processed=
         ble/complete/source/eval-simple-word "$common_reconstructed" single; local ext=$?
         ((ext==148)) && return 148
-        if ((ext==0)) && ble/complete/candidates/filter:"$filter_type"/count-match-chars "$ret"; then
+        if ((ext==0)) && ble/complete/candidates/determine-common-prefix/.count-match-chars "$filter_type" "$ret"; then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
             # Note: #D1181 ここに来たという事は外部の枠組みで
@@ -7470,7 +7510,7 @@ function ble/complete/candidates/determine-common-prefix {
              local compv_notilde=$ret &&
              ble/syntax:bash/simple-word/eval "$notilde$common_reconstructed" noglob &&
              local commonv_notilde=$ret &&
-             COMPV=$compv_notilde ble/complete/candidates/filter:"$filter_type"/count-match-chars "$commonv_notilde"
+             COMPV=$compv_notilde ble/complete/candidates/determine-common-prefix/.count-match-chars "$filter_type" "$commonv_notilde"
         then
           if [[ $filter_type == head ]] && ((ret<${#COMPV})); then
             is_processed=1
