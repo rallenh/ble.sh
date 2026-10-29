@@ -123,3 +123,28 @@ ble/test/start-section 'ble/complete/progcomp' 17
 )
 
 ble/test/end-section
+
+ble/test/start-section 'ble/complete/action:progcomp' 4
+
+(
+  ## @fn _complete DATA CAND
+  ##   Calls action:progcomp/complete for a candidate that completes the word
+  ##   "host:/h/Doc", and returns the final insert string and suffix in ret.
+  function _complete {
+    local DATA=$1 CAND=$2 insert=$2 COMPS='host:/h/Doc' COMPV='host:/h/Doc'
+    local comps_flags=v comps_fixed= COMP_PREFIX= insert_flags= suffix=
+    ble/complete/action:progcomp/complete
+    ret=$insert/$suffix/
+  }
+
+  # "ble/syntax-raw": inserted as is (scp generates remote files escaped for
+  # the local and remote shells)
+  ble/test '_complete :ble/syntax-raw:nospace: "host:/h/Docs\\\\\\ A/"' ret='host:/h/Docs\\\ A///'
+  ble/test '_complete :ble/syntax-raw: "host:/h/Docs\\\\\\ A"' ret='host:/h/Docs\\\ A/ /'
+
+  # without "ble/syntax-raw": requoted as before
+  ble/test '_complete :nospace: "host:/h/Docs\\\\\\ A/"' ret="'host:/h/Docs\\ A/'//"
+  ble/test '_complete : "host:/h/Docs\\ A\\ B"' ret="'host:/h/Docs A B'/ /"
+)
+
+ble/test/end-section

@@ -2017,9 +2017,18 @@ function ble/complete/action:progcomp/complete {
   if [[ $DATA == *:filenames:* ]]; then
     ble/complete/action:file/complete
   else
+    # With "ble/syntax-raw", the candidate is inserted as is.  We do not
+    # requote it: e.g., requoting "host:Docs\\\ A/" (scp) gives 'host:Docs\ A/'
+    # with the wordbreak ":" inside the quotes, so the next completion does
+    # not see "host:".
+    local is_raw=
+    [[ $DATA == *:ble/syntax-raw:* ]] && is_raw=1
     if [[ $DATA != *:ble/no-mark-directories:* && -d $CAND ]]; then
-      ble/complete/action/requote-final-insert
+      [[ $is_raw ]] || ble/complete/action/requote-final-insert
       ble/complete/action/complete.mark-directory
+    elif [[ $is_raw ]]; then
+      ble/complete/action/complete.close-quotation
+      ble/complete/action:literal-word/complete
     else
       ble/complete/action:word/complete
     fi
