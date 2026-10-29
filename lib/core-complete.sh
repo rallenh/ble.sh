@@ -4311,16 +4311,6 @@ function ble/complete/progcomp/adjust-third-party-completions {
     if ble/is-function _comp_initialize || ble/is-function _quote_readline_by_ref; then
       ble-import -f contrib/integration/bash-completion
       ble/function#try ble/contrib/integration:bash-completion/adjust
-
-      # WA for scp/rsync: bash-completion generates the local and remote
-      # filenames already escaped (e.g. "host:Docs\\\ Authoring/" for a
-      # remote file) without "-o filenames", so Bash inserts them as is.  We
-      # should not quote them again.
-      local func
-      for func in _comp_xfunc_scp_compgen_{local,remote}_files _scp_{local,remote}_files; do
-        ble/is-function "$func" &&
-          ble/function#advice after "$func" 'compopt -o ble/syntax-raw'
-      done
     fi
 
     # cobra GenBashCompletionV2
