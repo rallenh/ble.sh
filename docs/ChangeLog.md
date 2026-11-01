@@ -98,6 +98,7 @@
 - color: support color aliases `#D2416` d69e4d54
 - complete: support `bleopt complete_source_command_opts=apropos` (requested by alicealysia) `#D2418` 40f50e3e
 - keymap/vi: support readline bindable function `operate-and-get-next` in `vi-command` (requested by sharpchen) `#D2431` 690b3152
+- util: support `bleopt slow_path` (motivated by dezza) `#D2440` xxxxxxxx
 
 ## Changes
 
@@ -302,6 +303,10 @@
 - history: work around slow macOS timestamps (fixed by dfherr) `#D2429` 69ee0587
 - edit (`display-shell-version`): extract the MSYS2 version from `/etc/package-versions.txt` in Git for Windows `#D2433` a7eda61d
 - util (`ble/util/msleep`): update the macOS sleep detection (reported by digitalguy99) `#2434` c70c0e45
+- global: work around the `IFS=$'\001'` bug in Bash >= 4.0 (reported by NireBryce, simonsteiner) `#D2436` fb1811ea 51ed0356
+- test(util): work around a Bash-5.2 bug for spawn in eval in subshell `#D2437` 36475d92
+- util (`ble/adict#set`): work around a Bash-5.2 arithmetic bug for the index of a dynamic array name `#D2438` 36475d92
+- test(util): work around a Bash-3.1 bug for `"a${a[*]}b"` `#D2439` 36475d92
 
 ## Contrib
 
@@ -434,7 +439,7 @@
 - util (`ble/adict`): re-implement by the AVL tree `#D2419` 88314e2c
 - util: work around slow `${!var@}` with many variables `#D2420` 3dce1c53
 - exec: record exec start/end times by file timestamps `#D2421` dc8ca316
-- history: optimize history dumps in Bash 3.2  (reported by digitalguy99) `#D2435` xxxxxxxx
+- history: optimize history dumps in Bash 3.2  (reported by digitalguy99) `#D2435` aeabb1a2
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3

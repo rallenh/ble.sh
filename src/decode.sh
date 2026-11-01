@@ -836,7 +836,7 @@ function ble/decode/csi/.translate-kitty-csi-u {
   # protocol and ble.sh's keyboard protocol are not necessarily synchronized
   # due to TTY buffering and network delays.
   [[ $_ble_term_modifyOtherKeys_current_method == kitty_keyboard_protocol ]] ||
-    case $_ble_term_TERM in (kitty:*|ghostty:*|zellij:*) true ;; (*) false ;; esac ||
+    case $_ble_term_TERM in (kitty:*|ghostty:*|zellij:*) ((1)) ;; (*) ((0)) ;; esac ||
     return 0
 
   local name=${_ble_decode_csimap_kitty_u[key]}
@@ -4441,6 +4441,7 @@ function ble/builtin/bind/read-user-settings {
 
 function ble/builtin/bind {
   local set shopt; ble/base/.adjust-bash-options set shopt
+  local IFS=$_ble_term_IFS # WA #D2436 IFS=$'\001'
 
   [[ ! $_ble_attached || $_ble_edit_exec_inside_userspace ]] &&
     ble/base/adjust-BASH_REMATCH

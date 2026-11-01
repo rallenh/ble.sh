@@ -507,7 +507,7 @@ function ble/variable#is-global {
 function ble/variable#copy-state {
   local src=$1 dst=$2
   if [[ ${!src+set} ]]; then
-    builtin eval -- "$dst=\${$src}"
+    ble/util/set "$dst" "${!src}"
   else
     builtin unset -v "$dst[0]" 2>/dev/null || builtin unset -v "$dst"
   fi
@@ -1880,6 +1880,14 @@ function ble/adict#set {
     return 0
   fi
 
+  # Note (#D2438): Bash 5.2 seems to have a bug that one cannot use an array
+  # reference in the form "arr[path[d]]" in arithmetic expansions.  It reports
+  # an invalid math operator « \[d\] » for the string « "path\[d\]" ».  The
+  # problem doesn't arise with Bash 5.1 and 5.3.  Here, we avoid directly write
+  # arr[path[d]] but access path[d] through nested arithmetic evaluation
+  # through a variable "bash52wa". TODO add demonstration code
+  local bash52wa=path[d]
+
   local path d kref=${dict}_keys[i]
   for ((d = 0; ; d++)); do
     path[d]=$i
@@ -1891,14 +1899,14 @@ function ble/adict#set {
       i=$((${dict}_lptrs[i]))
       if ((i < 0)); then
         ble/adict/.alloc "$2" "$3"
-        ((${dict}_lptrs[path[d]]=ret))
+        ((${dict}_lptrs[bash52wa]=ret))
         break
       fi
     else
       i=$((${dict}_rptrs[i]))
       if ((i < 0)); then
         ble/adict/.alloc "$2" "$3"
-        ((${dict}_rptrs[path[d]]=ret))
+        ((${dict}_rptrs[bash52wa]=ret))
         break
       fi
     fi
@@ -2398,7 +2406,7 @@ function ble/util/writearray {
   # Note: gawk の内部では $'\302' 等から現在のコードにないバイトを生成できない
   # ので外部から与える。
   if [[ ! $_ble_util_writearray_rawbytes ]]; then
-    local IFS=$_ble_term_IFS __ble_tmp; __ble_tmp=('\'{2,3}{0..7}{0..7})
+    local __ble_tmp; __ble_tmp=('\'{2,3}{0..7}{0..7})
     builtin eval "local _ble_util_writearray_rawbytes=\$'${__ble_tmp[*]}'"
   fi
   local -x __ble_rawbytes=$_ble_util_writearray_rawbytes
@@ -3230,9 +3238,15 @@ if ((_ble_bash>=40100)); then
   function ble/util/set {
     builtin printf -v "$1" %s "$2"
   }
-else
+elif ((_ble_bash>=40000)); then
+  # Note (#D2436): Bash 4.0..4.3 has a bug in a=$b with IFS=$'\001'.  The
+  # characters $'\001' in $b are going to be lost.
   function ble/util/set {
     builtin eval -- "$1=\"\$2\""
+  }
+else
+  function ble/util/set {
+    builtin eval -- "$1=\$2"
   }
 fi
 
@@ -3242,7 +3256,9 @@ if ((_ble_bash>=30100)); then
   }
 else
   function ble/util/sprintf {
-    local -a args; args=("${@:2}")
+    # Note (#D0525): Bash-3.0 args=("$@") has a bug with custom IFS
+    local IFS=$_ble_term_IFS
+    local -a args; args=("${@:2}") # disable=#D0525
     ble/util/assign "$1" 'builtin printf "${args[@]}"'
   }
 fi
@@ -4254,7 +4270,7 @@ function ble/util/declare-print-definitions {
   '
 }
 
-## @fn ble/util/print-global-definitions/.print-decl name opts
+## @fn ble/variable#print-global-definitions/.print-decl name opts
 ##   指定された変数の宣言を出力します。
 ##   @param[in] name
 ##     処理対象の変数名を指定します。
@@ -4263,9 +4279,11 @@ function ble/util/declare-print-definitions {
 ##   @stdout
 ##     変数宣言を出力します。指定した名前の変数が見つからない時は unset 状態に
 ##     するコマンドを出力します。
-function ble/util/print-global-definitions/.print-decl {
+function ble/variable#print-global-definitions/.print-decl {
   local __ble_name=$1 __ble_decl=
   if [[ ! ${!__ble_name+set} || :$2: == *:unset:* ]]; then
+    # Note: There is a similar code in ble/variable#print-user-definitions
+    # (lib/core-syntax.sh).  These should be updated together.
     __ble_decl="declare $__ble_name; builtin unset -v $__ble_name"
   elif ble/variable#has-attr "$__ble_name" aA; then
     if ((_ble_bash>=40000)); then
@@ -4286,7 +4304,7 @@ function ble/util/print-global-definitions/.print-decl {
   ble/util/print "$__ble_decl"
 }
 
-## @fn ble/util/print-global-definitions varnames...
+## @fn ble/variable#print-global-definitions [--hidden-only] varnames...
 ##   @var[in] varnames
 ##
 ##   指定した変数のグローバル変数としての定義を出力します。
@@ -4302,13 +4320,13 @@ function ble/util/print-global-definitions/.print-decl {
 ##   declare -g -r var とすると、ローカルに新しく読み取り専用の var 変数が作られる。
 ##   現在の実装では問題にならない。
 ##
-function ble/util/print-global-definitions {
+function ble/variable#print-global-definitions {
   local __ble_opts=
   [[ $1 == --hidden-only ]] && { __ble_opts=hidden-only; shift; }
-  ble/util/for-global-variables ble/util/print-global-definitions/.print-decl "$__ble_opts" "$@"
+  ble/variable#for-global-variables ble/variable#print-global-definitions/.print-decl "$__ble_opts" "$@"
 }
 
-## @fn ble/util/for-global-variables proc opts varnames...
+## @fn ble/variable#for-global-variables proc opts varnames...
 ##   @fn proc name opts
 ##     @param[in] name
 ##       処理対象の変数名を指定します。
@@ -4319,7 +4337,7 @@ function ble/util/print-global-definitions {
 ##     被覆されている時にのみ proc を呼び出します。
 ##   @param[in] varnames...
 ##     処理対象の変数名の集合を指定します。
-function ble/util/for-global-variables {
+function ble/variable#for-global-variables {
   local __ble_proc=$1 __ble_opts=$2; shift 2
   local __ble_hidden_only=
   [[ :$__ble_opts: == *:hidden-only:* ]] && __ble_hidden_only=1
@@ -4376,6 +4394,62 @@ function ble/util/for-global-variables {
   ) 2>/dev/null
 }
 
+bleopt/declare -v slow_path ''
+_ble_util_slow_path=()
+_ble_util_slow_root=()
+function bleopt/check:slow_path {
+  _ble_util_slow_path=()
+  _ble_util_slow_root=()
+  if [[ $value ]]; then
+    local ret pattern is_dir
+    ble/string#split ret : "$value"
+    for pattern in "${ret[@]}"; do
+      [[ $pattern ]] || continue
+
+      # Canonicalize the directory name.
+      if [[ $pattern == */ ]]; then
+        [[ $pattern == ^/+$ ]] || pattern=${pattern%/}
+      fi
+
+      ble/array#push _ble_util_slow_path "$pattern"
+
+      # We register the root path also to _ble_util_slow_root, but we exclude
+      # the ones ending with '*' because it would also match any files under
+      # the path. [ XXX---We may instead replace '*' with '!(*/*)', but I
+      # haven't yet carefully considered possible side effects. ]
+      [[ $pattern == *'*' ]] ||
+        ble/array#push _ble_util_slow_root "$pattern"
+
+      # Add a pattern for subdirectories and files inside the path.  If the
+      # original pattern does not end with a slash, we are not sure whether the
+      # path is a directory.  Even then, if another path has the pattern
+      # "$pattern/*", we want to treat it as a slow path.
+      [[ $pattern == *'*' ]] ||
+        ble/array#push _ble_util_slow_path "${pattern%/}/*"
+    done
+  fi
+  return 0
+}
+
+## @fn ble/util/is-slow-path word
+##   Cygwin では // で始まるパスの展開は遅い (#D1168) のでその判定を行う。
+function ble/util/is-slow-path {
+  [[ ( $OSTYPE == cygwin || $OSTYPE == msys ) && $1 == //* ]] && return 0
+  local pattern
+  for pattern in "${_ble_util_slow_path[@]}"; do
+    [[ $1 == $pattern ]] && return 0
+  done
+  return 1
+}
+function ble/util/is-slow-directory {
+  [[ ( $OSTYPE == cygwin || $OSTYPE == msys ) && $1 == // ]] && return 0
+  local pattern
+  for pattern in "${_ble_util_slow_root[@]}"; do
+    [[ $1 == $pattern ]] && return 0
+  done
+  return 1
+}
+
 ## @fn ble/util/has-glob-pattern pattern
 ##   指定したパターンがグロブパターンを含むかどうかを判定します。
 ##
@@ -4402,12 +4476,13 @@ function ble/util/has-glob-pattern {
   [[ ! $ret ]]
 }
 
-## @fn ble/util/is-cygwin-slow-glob word
-##   Cygwin では // で始まるパスの展開は遅い (#D1168) のでその判定を行う。
-function ble/util/is-cygwin-slow-glob {
+## @fn ble/util/is-slow-glob word
+##   遅い path に対する glob は避ける。
+function ble/util/is-slow-glob {
   # Note: core-complete.sh ではエスケープを行うので
   #   "'//...'" 等の様な文字列が "$1" に渡される。
-  [[ ( $OSTYPE == cygwin || $OSTYPE == msys ) && ${1#\'} == //* && ! -o noglob ]] &&
+  [[ ! -o noglob ]] &&
+    ble/util/is-slow-path "${1#\'}" &&
     ble/util/has-glob-pattern "$1"
 }
 
@@ -4415,7 +4490,7 @@ function ble/util/is-cygwin-slow-glob {
 ##   @var[out] ret
 function ble/util/eval-pathname-expansion {
   ret=()
-  if ble/util/is-cygwin-slow-glob; then # Note: #D1168
+  if ble/util/is-slow-glob; then # Note: #D1168
     if shopt -q failglob &>/dev/null; then
       return 1
     elif shopt -q nullglob &>/dev/null; then
@@ -4870,6 +4945,7 @@ if ((_ble_bash>=40400)) && ble/util/load-standard-builtin sleep; then
 
   function ble/builtin/sleep {
     local set shopt; ble/base/.adjust-bash-options set shopt
+    local IFS=$_ble_term_IFS # WA #D2436 IFS=$'\001'
     local frac_scale=100000000000000
     local a=0 b=0 flags=
     if (($#==0)); then
@@ -6539,7 +6615,6 @@ if ((_ble_bash>=40000)); then
   ##     何も実行しなかった時に失敗 (1) を返します。
   ##
   function ble/util/idle.do {
-    local IFS=$_ble_term_IFS
     ble/util/idle/IS_IDLE || return 1
     ((${#_ble_util_idle_task[@]}==0)) && return 1
     ble/util/buffer.flush
@@ -7984,7 +8059,7 @@ _ble_term_modifyOtherKeys_current=
 _ble_term_modifyOtherKeys_current_method=
 _ble_term_modifyOtherKeys_current_TERM=
 function ble/term/modifyOtherKeys/.update {
-  local IFS=$_ble_term_IFS state=${1%%:*}
+  local state=${1%%:*}
   [[ $1 == "$_ble_term_modifyOtherKeys_current" ]] &&
     [[ $state != 2 || "${_ble_term_TERM[*]}" == "$_ble_term_modifyOtherKeys_current_TERM" ]] &&
     return 0
@@ -8962,19 +9037,32 @@ function ble/builtin/readonly/.print-warning {
   return 0
 }
 function ble/builtin/readonly {
+  local _ble_local_IFS="$IFS" IFS=$_ble_term_IFS # WA #D2436 IFS=$'\001'
   local _ble_local_set _ble_local_shopt
   ble/base/.adjust-bash-options _ble_local_set _ble_local_shopt
   local LC_ALL= LC_COLLATE=C 2>/dev/null # suppress locale error #D1440
 
+  # "_ble_local_flags" contains flag characters.  The meanings of the
+  # characters are as follow: aAf: readonly options, v: has variable spec, r:
+  # has readonly variables, w: has warning.
   local _ble_local_flags=
   local -a _ble_local_options=()
   local _ble_local_caller= # used by print-warning
+
+  while (($#)) && [[ $1 == -* && $1 != -- ]]; do
+    [[ $1 == *a* ]] && _ble_local_flags=a$_ble_local_flags
+    [[ $1 == *A* ]] && _ble_local_flags=A$_ble_local_flags
+    [[ $1 == *f* ]] && _ble_local_flags=f$_ble_local_flags
+    ble/array#push _ble_local_options "$1"
+    shift
+  done
+
   while (($#)); do
-    if ble/string#match "$1" '^([_a-zA-Z][_a-zA-Z0-9]*)($|=)'; then
+    if [[ $_ble_local_flags != *f* ]] && ble/string#match "$1" '^([_a-zA-Z][_a-zA-Z0-9]*)($|=)'; then
       _ble_local_flags=v$_ble_local_flags
       local _ble_local_var=${BASH_REMATCH[1]}
       if [[ ${BASH_REMATCH[2]} == = ]]; then
-        ble/util/sprintf "$_ble_local_var" "${1#*=}"
+        IFS=$_ble_local_IFS ble/util/set "$_ble_local_var" "${1#*=}"
       fi
 
       if ble/builtin/readonly/.check-variable-name "$_ble_local_var"; then
